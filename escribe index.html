@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>:root{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Sistema NFC</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: panel de marca fijo a la izquierda, flujo rol → credenciales → dashboard a la derecha. En el dashboard el panel de marca se oculta. */
+:root{
+  --bg:#f1f5f7; --surface:#ffffff; --ink:#14202b; --muted:#5b6a77; --line:#d9e1e6; --soft:#e9eff2;
+  --brand:#0e6b83; --brand-ink:#ffffff; --ok:#17784f; --warn:#a56a0b; --bad:#b83a2e;
+  --side-bg:#0b2b36; --side-ink:#eaf4f7; --side-muted:#8fb0bb; --side-line:#1d4553;
+  --r-usuario:#2563eb; --r-secretaria:#c26a05; --r-almacen:#0f6b57; --r-rrhh:#d9532b; --r-jefatura:#7c3aed; --r-soporte:#14738d;
+  --font-display:'Space Grotesk',system-ui,sans-serif; --font-body:'Inter',system-ui,sans-serif; --font-mono:'JetBrains Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d1418; --surface:#141d23; --ink:#e8eef2; --muted:#93a3af; --line:#25323b; --soft:#1b262d;
+  --brand:#4fb6cf; --brand-ink:#06222b; --ok:#3fc19b; --warn:#f0b04a; --bad:#ff8277;
+  --side-bg:#08171d; --side-ink:#eaf4f7; --side-muted:#7fa2ae; --side-line:#173844;
+  --r-usuario:#7ba6ff; --r-secretaria:#f5a524; --r-almacen:#3fc19b; --r-rrhh:#ff8a65; --r-jefatura:#b49bff; --r-soporte:#4fb6cf;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1418; --surface:#141d23; --ink:#e8eef2; --muted:#93a3af; --line:#25323b; --soft:#1b262d;
+  --brand:#4fb6cf; --brand-ink:#06222b; --ok:#3fc19b; --warn:#f0b04a; --bad:#ff8277;
+  --side-bg:#08171d; --side-ink:#eaf4f7; --side-muted:#7fa2ae; --side-line:#173844;
+  --r-usuario:#7ba6ff; --r-secretaria:#f5a524; --r-almacen:#3fc19b; --r-rrhh:#ff8a65; --r-jefatura:#b49bff; --r-soporte:#4fb6cf;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.5}
+h1,h2,h3{font-family:var(--font-display);margin:0;text-wrap:balance;letter-spacing:-.01em}
+p{margin:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.shell{display:grid;grid-template-columns:minmax(300px,420px) 1fr;min-height:100vh}
+body.in-dash .shell{grid-template-columns:1fr}
+body.in-dash .brand{display:none}
+
+/* Panel de marca */
+.brand{background:var(--side-bg);color:var(--side-ink);padding:clamp(24px,4vw,48px) 28px;display:flex;flex-direction:column;gap:28px;min-width:0}
+.eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--side-muted)}
+.brand h1{font-size:clamp(34px,4.4vw,48px);line-height:1.02;margin-top:10px}
+.brand .lead{color:var(--side-muted);margin-top:14px;max-width:34ch}
+.tap{width:100%;max-width:300px;height:auto}
+.tap .ring{fill:none;stroke:var(--side-muted);stroke-width:2;stroke-linecap:round;opacity:.25;animation:pulse 2.4s infinite}
+.tap .ring:nth-of-type(2){animation-delay:.3s}.tap .ring:nth-of-type(3){animation-delay:.6s}
+@keyframes pulse{0%,100%{opacity:.18}40%{opacity:.9}}
+@media (prefers-reduced-motion:reduce){.tap .ring{animation:none;opacity:.5}}
+.flow{list-style:none;margin:0;padding:0;display:grid;gap:12px;counter-reset:s}
+.flow li{counter-increment:s;display:grid;grid-template-columns:28px 1fr;gap:12px;align-items:baseline;font-size:14px;color:var(--side-muted)}
+.flow li::before{content:counter(s);font-family:var(--font-mono);font-size:12px;width:28px;height:28px;border:1px solid var(--side-line);border-radius:50%;display:grid;place-items:center;color:var(--side-ink)}
+.flow b{color:var(--side-ink);font-weight:600}
+.credit{margin-top:auto;font-size:12px;color:var(--side-muted)}
+
+/* Panel principal */
+.panel{padding:clamp(20px,4vw,56px) clamp(16px,4vw,56px);min-width:0;display:flex;flex-direction:column}
+.view{width:100%;max-width:980px;margin-inline:auto}
+.view h2{font-size:clamp(26px,3.4vw,36px);line-height:1.1}
+.view h2 em{font-style:normal;background:linear-gradient(90deg,var(--r-soporte),var(--r-usuario));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{color:var(--muted);margin-top:10px;max-width:56ch}
+.roles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:28px}
+.role{text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;cursor:pointer;display:grid;gap:10px;transition:border-color .15s,transform .15s}
+.role:hover{border-color:var(--rc);transform:translateY(-1px)}
+.role-top{display:flex;align-items:center;gap:12px}
+.ico{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;background:color-mix(in srgb,var(--rc) 15%,transparent);color:var(--rc);flex:none}
+.ico svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.role h3{font-size:17px}
+.role p{font-size:13.5px;color:var(--muted)}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;background:var(--soft);border:1px solid var(--line);border-radius:5px;padding:2px 7px;color:var(--muted)}
+.tag.lock{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+.hint{margin-top:22px;font-size:13px;color:var(--muted)}
+
+/* Login */
+.back{background:none;border:0;color:var(--muted);cursor:pointer;padding:4px 0;font-size:14px;display:inline-flex;gap:6px;align-items:center}
+.back:hover{color:var(--ink)}
+.login{max-width:440px;margin-inline:auto;display:grid;gap:20px}
+.login .role-top{margin-top:6px}
+.who{font-size:13px;color:var(--muted)}
+form{display:grid;gap:14px}
+label{display:grid;gap:6px;font-size:13.5px;font-weight:500}
+input[type=text],input[type=password]{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px;width:100%}
+input[type=text]:focus,input[type=password]:focus{border-color:var(--brand)}
+.btn{background:var(--brand);color:var(--brand-ink);border:0;border-radius:8px;padding:11px 16px;font-weight:600;cursor:pointer}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:500}
+.btn.sm{padding:6px 11px;font-size:13px}
+.demo{border:1px dashed var(--line);border-radius:10px;padding:14px;display:grid;gap:8px;background:var(--surface)}
+.demo dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+.demo dt{color:var(--muted)}.demo dd{margin:0;font-family:var(--font-mono);font-size:13px;word-break:break-all}
+.err{color:var(--bad);font-size:13.5px;min-height:1.4em}
+
+/* Dashboard */
+.bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding-bottom:18px;border-bottom:1px solid var(--line);margin-bottom:24px}
+.bar-l{display:flex;align-items:center;gap:12px;min-width:0}
+.bar h2{font-size:22px}
+.bar-r{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.chip{font-family:var(--font-mono);font-size:12px;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:4px 9px;font-variant-numeric:tabular-nums}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;min-width:0}
+.card h3{font-size:15px;margin-bottom:12px}
+.stat{display:grid;gap:2px}
+.stat b{font-family:var(--font-display);font-size:34px;line-height:1;font-variant-numeric:tabular-nums}
+.stat span{font-size:13px;color:var(--muted)}
+.note{font-size:12.5px;color:var(--muted);margin-top:14px}
+.wrap{overflow-x:auto;margin-top:14px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
+th{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;font-weight:500;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--soft)}
+td{padding:11px 14px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:0}
+.mono{font-family:var(--font-mono);font-size:13px}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;background:color-mix(in srgb,var(--c) 14%,transparent);color:var(--c)}
+.p-ok{--c:var(--ok)}.p-warn{--c:var(--warn)}.p-bad{--c:var(--bad)}.p-neu{--c:var(--muted)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.f{background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:5px 13px;font-size:13px;cursor:pointer}
+.f[aria-pressed=true]{background:var(--rc);border-color:var(--rc);color:var(--surface)}
+.list{list-style:none;margin:0;padding:0;display:grid;gap:10px;font-size:14px}
+.list li{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding-bottom:10px}
+.list li:last-child{border:0;padding:0}
+.avatar{width:56px;height:56px;border-radius:14px;display:grid;place-items:center;font-family:var(--font-display);font-weight:700;font-size:20px;background:color-mix(in srgb,var(--rc) 16%,transparent);color:var(--rc)}
+.bars{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;align-items:end;height:150px;margin-top:8px}
+.bar-c{display:grid;gap:6px;align-items:end;height:100%;grid-template-rows:1fr auto;text-align:center;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.bar-c i{display:block;background:var(--rc);border-radius:5px 5px 0 0;min-height:4px;align-self:end;opacity:.9}
+.bar-c span{display:block}
+.perm{display:grid;grid-template-columns:1.2fr repeat(3,minmax(70px,1fr));gap:8px 6px;align-items:center;font-size:14px;min-width:420px}
+.perm .h{font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.perm input{width:18px;height:18px;accent-color:var(--brand);justify-self:start}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:14px;z-index:5}
+.inline-form{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-top:14px}
+.inline-form label{min-width:200px}
+
+.scan{display:grid;gap:14px;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}
+.res{border:1px solid var(--line);border-radius:10px;padding:20px;display:grid;align-content:center;gap:8px;background:var(--surface);min-height:180px}
+.res.ok{border-color:var(--ok)}.res.bad{border-color:var(--bad)}
+.res b{font-family:var(--font-display);font-size:24px;line-height:1.15}
+.quick{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)}
+button.q{font-family:var(--font-mono);font-size:12px;background:var(--soft);border:1px solid var(--line);border-radius:5px;padding:2px 8px;cursor:pointer}
+#q{background:var(--surface);border:1px solid var(--line)}
+@media (max-width:820px){
+  .scan{grid-template-columns:1fr}
+  .shell{grid-template-columns:1fr}
+  .brand{padding:22px 16px;gap:16px}
+  .brand .tap,.brand .flow{display:none}
+  .brand h1{font-size:30px;margin-top:6px}
+  .brand .lead{margin-top:6px}
+  .credit{display:none}
+}
+</style>
+
+</head>
+<body>
+<main class="shell">
+  <aside class="brand">
+    <div>
+      <p class="eyebrow">Propuesta 2026</p>
+      <h1>Sistema NFC</h1>
+      <p class="lead">Asistencia, accesos y materiales en una sola plataforma. Acerca el chip y listo.</p>
+    </div>
+    <svg class="tap" viewBox="0 0 300 170" role="img" aria-label="Tarjeta NFC acercándose a un celular">
+      <rect x="20" y="40" width="96" height="62" rx="9" fill="none" stroke="#eaf4f7" stroke-width="2"/>
+      <rect x="34" y="56" width="22" height="17" rx="3" fill="#4fb6cf"/>
+      <path d="M34 90h54M34 82h30" stroke="#8fb0bb" stroke-width="2" stroke-linecap="round"/>
+      <path class="ring" d="M136 55a38 38 0 0 1 0 32"/>
+      <path class="ring" d="M150 44a56 56 0 0 1 0 54"/>
+      <path class="ring" d="M164 33a74 74 0 0 1 0 76"/>
+      <rect x="196" y="14" width="76" height="142" rx="13" fill="none" stroke="#eaf4f7" stroke-width="2"/>
+      <rect x="226" y="21" width="16" height="3.5" rx="2" fill="#8fb0bb"/>
+      <rect x="208" y="48" width="52" height="8" rx="4" fill="#1d4553"/>
+      <rect x="208" y="64" width="38" height="8" rx="4" fill="#1d4553"/>
+      <circle cx="234" cy="112" r="14" fill="none" stroke="#4fb6cf" stroke-width="2"/>
+      <path d="M228 112l4 4 8-9" stroke="#4fb6cf" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <ol class="flow">
+      <li><span><b>Acercar chip.</b> Tarjeta del empleado o sticker del activo.</span></li>
+      <li><span><b>Validar.</b> Cloudflare revisa identidad, rol y permisos.</span></li>
+      <li><span><b>Confirmar.</b> El sistema registra y muestra el resultado.</span></li>
+    </ol>
+    <p class="credit">Chavez Huaman Adrian · Prototipo académico</p>
+  </aside>
+
+  <section class="panel">
+    <div class="view" id="v-roles">
+      <h2>Seis roles, <em>un solo sistema</em></h2>
+      <p class="sub">Elige un rol para iniciar sesión y ver su dashboard. Las credenciales de demo aparecen en el siguiente paso.</p>
+      <div class="roles" id="roles"></div>
+      <p class="hint">Los roles con candado piden una contraseña adicional (PWD), como en el Modo Avanzado.</p>
+    </div>
+
+    <div class="view" id="v-login" hidden>
+      <div class="login">
+        <button class="back" id="back" type="button">← Cambiar rol</button>
+        <div class="role-top" id="login-head"></div>
+        <form id="form" autocomplete="off" novalidate>
+          <label>Código de usuario<input type="text" id="f-user" placeholder="USR-024" autocapitalize="characters"></label>
+          <label>Contraseña<input type="password" id="f-pass" placeholder="••••••••"></label>
+          <label id="pwd-wrap" hidden>PWD de acceso avanzado<input type="password" id="f-pwd" placeholder="PWD-••••"></label>
+          <p class="err" id="err" role="alert"></p>
+          <button class="btn" type="submit">Iniciar sesión</button>
+        </form>
+        <div class="demo">
+          <span class="eyebrow" style="color:var(--muted)">Credenciales de demo</span>
+          <dl id="demo"></dl>
+          <button class="btn ghost sm" id="fill" type="button" style="justify-self:start">Rellenar campos</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="view" id="v-dash" hidden></div>
+  </section>
+</main>
+
+<script>
+const ICONS={
+  usuario:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>',
+  secretaria:'<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/>',
+  almacen:'<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
+  rrhh:'<circle cx="9" cy="8" r="3"/><path d="M3 19c.6-3 3-4.6 6-4.6s5.4 1.600 6 4.600"/><path d="M16 5.500a3 3 0 0 1 0 5M18 14.600c1.800.6 3 2 3.400 4.400"/>',
+  jefatura:'<path d="M4 4v16h16"/><path d="M9 16v-5M13 16V8M17 16v-3"/>',
+  soporte:'<path d="M12 3l7 3v5c0 4.500-3 8-7 10-4-2-7-5.500-7-10V6z"/>'
+};
+const ROLES=[
+  {id:'usuario',name:'Usuario',desc:'Ve solo su perfil. No modifica nada.',tags:['Solo lectura'],user:'USR-024',pass:'usuario24',person:'Lucía Ramos',cargo:'Analista de soporte',area:'Soporte TI'},
+  {id:'secretaria',name:'Secretaría',desc:'Reportes de asistencia y personal.',tags:['Reportes','Excel'],user:'SEC-002',pass:'secre2026',person:'Marta Quispe',cargo:'Secretaria administrativa',area:'Administración'},
+  {id:'almacen',name:'Almacén',desc:'Entrega, devolución e inventario.',tags:['Entregar','NFC'],user:'ALM-003',pass:'almacen26',person:'Jorge Salas',cargo:'Encargado de almacén',area:'Logística'},
+  {id:'rrhh',name:'RRHH',desc:'Datos de personal y contratos.',tags:['Personal','Contratos'],lock:true,user:'RH-001',pass:'rrhh2026',pwd:'PWD-RH26',person:'Carla Mendoza',cargo:'Jefa de RRHH',area:'Recursos Humanos'},
+  {id:'jefatura',name:'Jefatura',desc:'Dashboard gerencial + reportes.',tags:['Dashboard','Filtros'],lock:true,user:'JEF-001',pass:'jefe2026',pwd:'PWD-JEF26',person:'Ricardo Vega',cargo:'Gerente de Operaciones',area:'Gerencia'},
+  {id:'soporte',name:'Soporte',desc:'Modo Avanzado + gestión de permisos.',tags:['Avanzado','PWD'],lock:true,user:'SOP-007',pass:'soporte26',pwd:'PWD-SOP26',person:'Diego Paredes',cargo:'Administrador del sistema',area:'Soporte TI'}
+];
+const icon=id=>'<svg viewBox="0 0 24 24" aria-hidden="true">'+ICONS[id]+'</svg>';
+const $=s=>document.querySelector(s);
+let role=null,timer=null;
+
+/* ---- Paso 1: elegir rol ---- */
+$('#roles').innerHTML=ROLES.map(r=>`
+  <button class="role" type="button" data-role="${r.id}" style="--rc:var(--r-${r.id})">
+    <span class="role-top"><span class="ico">${icon(r.id)}</span><h3>${r.name}</h3></span>
+    <p>${r.desc}</p>
+    <span class="tags">${r.tags.map(t=>`<span class="tag${r.lock&&(t==='PWD'||t==='Avanzado')?' lock':''}">${t}</span>`).join('')}${r.lock?'<span class="tag lock">🔒 Con PWD</span>':''}</span>
+  </button>`).join('');
+$('#roles').addEventListener('click',e=>{const b=e.target.closest('[data-role]');if(b)chooseRole(b.dataset.role)});
+
+function show(id){['v-roles','v-login','v-dash'].forEach(v=>$('#'+v).hidden=v!==id);document.body.classList.toggle('in-dash',id==='v-dash');window.scrollTo(0,0)}
+
+/* ---- Paso 2: credenciales ---- */
+function chooseRole(id){
+  role=ROLES.find(r=>r.id===id);
+  $('#login-head').style.setProperty('--rc',`var(--r-${id})`);
+  $('#login-head').innerHTML=`<span class="ico">${icon(id)}</span><div><h2 style="font-size:24px">Entrar como ${role.name}</h2><p class="who">${role.desc}</p></div>`;
+  $('#pwd-wrap').hidden=!role.lock;
+  $('#demo').innerHTML=`<dt>Código</dt><dd>${role.user}</dd><dt>Contraseña</dt><dd>${role.pass}</dd>`+(role.lock?`<dt>PWD</dt><dd>${role.pwd}</dd>`:'');
+  ['#f-user','#f-pass','#f-pwd'].forEach(s=>$(s).value='');
+  $('#err').textContent='';
+  show('v-login');$('#f-user').focus();
+}
+$('#back').onclick=()=>show('v-roles');
+$('#fill').onclick=()=>{$('#f-user').value=role.user;$('#f-pass').value=role.pass;if(role.lock)$('#f-pwd').value=role.pwd;$('#err').textContent=''};
+$('#form').addEventListener('submit',e=>{
+  e.preventDefault();
+  const ok=$('#f-user').value.trim().toUpperCase()===role.user&&$('#f-pass').value===role.pass;
+  if(!ok){$('#err').textContent='Código o contraseña incorrectos. Usa los datos de la caja de demo.';return}
+  if(role.lock&&$('#f-pwd').value.trim().toUpperCase()!==role.pwd){$('#err').textContent='La PWD adicional no coincide. Este rol la necesita para entrar.';return}
+  openDash();
+});
+
+/* ---- Datos de ejemplo ---- */
+const STAFF=[
+  {id:'USR-024',n:'Lucía Ramos',a:'Soporte TI',in:'07:58',st:'Presente',c:'Indefinido',v:'—'},
+  {id:'USR-031',n:'Mateo Cárdenas',a:'Infraestructura',in:'08:04',st:'Presente',c:'Plazo fijo',v:'30 nov 2026'},
+  {id:'USR-017',n:'Andrea Flores',a:'Administración',in:'08:22',st:'Tarde',c:'Indefinido',v:'—'},
+  {id:'USR-040',n:'Sergio Huanca',a:'Infraestructura',in:'07:51',st:'Presente',c:'Plazo fijo',v:'15 dic 2026'},
+  {id:'USR-012',n:'Valeria Torres',a:'Soporte TI',in:'—',st:'Ausente',c:'Plazo fijo',v:'12 ene 2027'},
+  {id:'USR-045',n:'Hugo Mamani',a:'Administración',in:'08:01',st:'Presente',c:'Indefinido',v:'—'}
+];
+const pillSt={Presente:'p-ok',Tarde:'p-warn',Ausente:'p-bad'};
+let ASSETS=[
+  {id:'LAP-087',d:'Laptop Lenovo T14',who:'USR-031',since:'hoy 08:40'},
+  {id:'LAP-092',d:'Laptop Dell Latitude',who:null},
+  {id:'LAP-101',d:'Laptop HP ProBook',who:null},
+  {id:'LAP-103',d:'Laptop Lenovo T14',who:'USR-040',since:'hoy 09:05'},
+  {id:'PRY-004',d:'Proyector Epson',who:'USR-017',since:'ayer 15:10',late:true},
+  {id:'CBL-015',d:'Kit de cables de red',who:null},
+  {id:'MON-021',d:'Monitor Dell 24"',who:null},
+  {id:'ADP-008',d:'Adaptador USB-C',who:null}
+];
+let MOVES=[];
+let PERMS={Usuario:[0,0,0],Secretaría:[0,0,1],Almacén:[0,1,0],RRHH:[0,0,1],Jefatura:[1,0,1],Soporte:[1,1,1]};
+const AREAS={'Todas':[96,94,92,95,91],'Soporte TI':[100,92,96,100,88],'Infraestructura':[90,95,90,90,95],'Administración':[96,95,91,96,92]};
+const DAYS=['Lun','Mar','Mié','Jue','Vie'];
+
+/* ---- Paso 3: dashboard ---- */
+function openDash(){
+  show('v-dash');
+  render();
+  clearInterval(timer);
+  if(role.id==='soporte'){let s=15*60;const tick=()=>{const el=$('#tok');if(!el)return;el.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');if(s--<=0){logout('El token de 15 minutos venció. Inicia sesión de nuevo.')}};tick();timer=setInterval(tick,1000)}
+}
+function logout(msg){clearInterval(timer);show('v-roles');if(msg)toast(msg)}
+function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.append(t);setTimeout(()=>t.remove(),3200)}
+
+const VIEWS={
+  usuario(){
+    const ini=role.person.split(' ').map(x=>x[0]).join('');
+    return `<div class="grid">
+      <div class="card"><div style="display:flex;gap:14px;align-items:center"><div class="avatar">${ini}</div><div><h3 style="margin:0;font-size:18px">${role.person}</h3><p class="who">${role.cargo}</p></div></div>
+        <ul class="list" style="margin-top:18px"><li><span>Código</span><span class="mono">${role.user}</span></li><li><span>Área</span><span>${role.area}</span></li><li><span>Chip</span><span class="mono">/scan/${role.user}</span></li></ul></div>
+      <div class="card"><h3>Mis últimos registros</h3><ul class="list">
+        <li><span>Entrada · hoy</span><span class="mono">07:58</span></li>
+        <li><span>Salida · ayer</span><span class="mono">17:31</span></li>
+        <li><span>Entrada · ayer</span><span class="mono">08:03</span></li>
+        <li><span>Laptop LAP-087 devuelta</span><span class="mono">jue 17:20</span></li></ul></div>
+    </div><p class="note">Vista de solo lectura. Este rol no puede modificar ningún dato.</p>`},
+  secretaria(){
+    const f=state.fil||'Todos';
+    const rows=STAFF.filter(s=>f==='Todos'||s.st===f);
+    const n=k=>STAFF.filter(s=>s.st===k).length;
+    return `<div class="grid">
+      <div class="card stat"><b>${n('Presente')}</b><span>Presentes hoy</span></div>
+      <div class="card stat"><b>${n('Tarde')}</b><span>Tardanzas</span></div>
+      <div class="card stat"><b>${n('Ausente')}</b><span>Ausentes</span></div></div>
+      <div class="filters" style="margin-top:20px;--rc:var(--r-secretaria)">${['Todos','Presente','Tarde','Ausente'].map(k=>`<button class="f" data-act="fil" data-v="${k}" aria-pressed="${k===f}">${k}</button>`).join('')}</div>
+      <div class="wrap"><table><thead><tr><th>Código</th><th>Nombre</th><th>Área</th><th>Entrada</th><th>Estado</th></tr></thead><tbody>
+      ${rows.map(s=>`<tr><td class="mono">${s.id}</td><td>${s.n}</td><td>${s.a}</td><td class="mono">${s.in}</td><td><span class="pill ${pillSt[s.st]}">${s.st}</span></td></tr>`).join('')}</tbody></table></div>
+      <p class="note">Datos de ejemplo del día. En producción se exporta a Excel desde este reporte.</p>`},
+  almacen(){
+    const free=ASSETS.filter(x=>!x.who).length,out=ASSETS.filter(x=>x.who).length,late=ASSETS.filter(x=>x.late).length;
+    const f=state.afil||'Todos',q=(state.q||'').trim().toLowerCase();
+    const cnt={Todos:ASSETS.length,Disponibles:free,Prestados:out,Atrasados:late};
+    const rows=ASSETS.filter(x=>(f==='Todos'||(f==='Disponibles'&&!x.who)||(f==='Prestados'&&x.who)||(f==='Atrasados'&&x.late))&&(!q||(x.id+' '+x.d+' '+(x.who||'')).toLowerCase().includes(q)));
+    const r=state.res;
+    return `<div class="grid">
+      <div class="card stat"><b>${free}</b><span>Disponibles</span></div>
+      <div class="card stat"><b>${out}</b><span>Prestados ahora</span></div>
+      <div class="card stat"><b style="color:${late?'var(--bad)':'inherit'}">${late}</b><span>Atrasados</span></div>
+      <div class="card stat"><b>${ASSETS.length}</b><span>Activos con chip</span></div></div>
+
+    <div class="scan" style="margin-top:14px">
+      <form class="card" id="scan-form" autocomplete="off">
+        <h3>Leer chip</h3>
+        <div style="display:grid;gap:12px">
+          <label>Chip del activo<input type="text" id="sc-asset" placeholder="LAP-092" value="${state.sa||''}" autocapitalize="characters"></label>
+          <label>Chip del empleado <span class="who" style="font-weight:400">(solo para entregar)</span><input type="text" id="sc-emp" placeholder="USR-024" value="${state.se!==undefined?state.se:'USR-024'}" autocapitalize="characters"></label>
+          <button class="btn" type="submit">Registrar lectura</button>
+          <div class="quick"><span>Probar con:</span>
+            ${ASSETS.filter(x=>!x.who).slice(0,2).map(x=>`<button class="q" type="button" data-act="pick" data-id="${x.id}">${x.id}</button>`).join('')}
+            ${ASSETS.filter(x=>x.who).slice(0,1).map(x=>`<button class="q" type="button" data-act="pick" data-id="${x.id}">${x.id} · devolver</button>`).join('')}</div>
+        </div>
+        <p class="note" style="margin-top:12px">Si el activo está disponible se entrega. Si está prestado se devuelve.</p>
+      </form>
+      <div class="res ${r?(r.ok?'ok':'bad'):''}" role="status" aria-live="polite">
+        ${r?`<span class="pill ${r.ok?'p-ok':'p-bad'}" style="justify-self:start">${r.ok?'Confirmado':'Rechazado'}</span><b>${r.title}</b><p class="who">${r.msg}</p>`
+           :`<span class="eyebrow" style="color:var(--muted)">Resultado</span><b>Esperando lectura</b><p class="who">Acerca el chip del activo o escribe su código. El resultado aparece aquí.</p>`}
+      </div>
+    </div>
+
+    <div class="filters" style="margin-top:22px;--rc:var(--r-almacen)">
+      ${Object.keys(cnt).map(k=>`<button class="f" data-act="afil" data-v="${k}" aria-pressed="${k===f}">${k} · ${cnt[k]}</button>`).join('')}
+      <input type="text" id="q" placeholder="Buscar código, equipo o responsable" value="${state.q||''}" style="flex:1;min-width:200px;max-width:340px;padding:6px 12px;border-radius:99px;font-size:13px" aria-label="Buscar en el inventario">
+    </div>
+    <div class="wrap"><table><thead><tr><th>Activo</th><th>Descripción</th><th>Estado</th><th>Responsable</th><th>Desde</th><th></th></tr></thead><tbody>
+      ${rows.length?rows.map(x=>`<tr><td class="mono">${x.id}</td><td>${x.d}</td>
+        <td><span class="pill ${x.late?'p-bad':x.who?'p-warn':'p-ok'}">${x.late?'Atrasado':x.who?'Prestado':'Disponible'}</span></td>
+        <td class="mono">${x.who||'—'}</td><td>${x.since||'—'}</td>
+        <td>${x.who?`<button class="btn sm ghost" data-act="ret" data-id="${x.id}">Devolver</button>`:`<button class="btn sm" data-act="del" data-id="${x.id}">Entregar</button>`}</td></tr>`).join(''):'<tr><td colspan="6" class="who">Ningún activo coincide con el filtro.</td></tr>'}
+    </tbody></table></div>
+
+    <div class="card" style="margin-top:14px"><h3>Movimientos de esta sesión</h3>
+      ${MOVES.length?`<ul class="list">${MOVES.map(m=>`<li><span><span class="pill ${m.k==='Entrega'?'p-warn':'p-ok'}" style="margin-right:8px">${m.k}</span><span class="mono">${m.a}</span></span><span class="mono">${m.e} · ${m.h}</span></li>`).join('')}</ul>`:'<p class="who">Todavía no hay movimientos. Registra una lectura para verlo aquí.</p>'}
+    </div>
+    <p class="note">Datos de ejemplo. En producción cada lectura la hace el celular del almacén y queda guardada en Cloudflare.</p>`},
+  rrhh(){
+    return `<div class="grid"><div class="card stat"><b>${STAFF.length}</b><span>Personal activo</span></div>
+      <div class="card stat"><b>${STAFF.filter(s=>s.c==='Plazo fijo').length}</b><span>Contratos a plazo fijo</span></div>
+      <div class="card stat"><b>2</b><span>Vencen en menos de 90 días</span></div></div>
+      <div class="wrap"><table><thead><tr><th>Código</th><th>Nombre</th><th>Área</th><th>Contrato</th><th>Vence</th></tr></thead><tbody>
+      ${STAFF.map(s=>{const soon=s.v==='30 nov 2026'||s.v==='15 dic 2026';return `<tr><td class="mono">${s.id}</td><td>${s.n}</td><td>${s.a}</td><td>${s.c}</td><td>${s.v==='—'?'—':`<span class="pill ${soon?'p-warn':'p-neu'}">${s.v}</span>`}</td></tr>`}).join('')}</tbody></table></div>
+      <p class="note">Datos de ejemplo. Acceso protegido con PWD adicional.</p>`},
+  jefatura(){
+    const a=state.area||'Todas',v=AREAS[a],avg=Math.round(v.reduce((x,y)=>x+y,0)/v.length);
+    return `<div class="filters" style="--rc:var(--r-jefatura)">${Object.keys(AREAS).map(k=>`<button class="f" data-act="area" data-v="${k}" aria-pressed="${k===a}">${k}</button>`).join('')}</div>
+      <div class="grid" style="margin-top:16px">
+        <div class="card stat"><b>${avg}%</b><span>Asistencia promedio semanal</span></div>
+        <div class="card stat"><b>38</b><span>Accesos al Data Center</span></div>
+        <div class="card stat"><b>${ASSETS.filter(x=>x.who).length}</b><span>Activos prestados ahora</span></div>
+        <div class="card stat"><b>0</b><span>Activos sin trazabilidad</span></div></div>
+      <div class="card" style="margin-top:14px;--rc:var(--r-jefatura)"><h3>Asistencia por día · ${a}</h3>
+        <div class="bars">${v.map((x,i)=>`<div class="bar-c"><i style="height:${x*1.1}px" title="${x}%"></i><span>${DAYS[i]}<br>${x}%</span></div>`).join('')}</div></div>
+      <p class="note">Datos de ejemplo. Los filtros recalculan el dashboard al instante.</p>`},
+  soporte(){
+    const cols=['Data Center','Almacén','Reportes'];
+    return `<div class="card"><h3>Permisos por rol</h3><div class="wrap" style="border:0;margin:0"><div class="perm"><span class="h">Rol</span>${cols.map(c=>`<span class="h">${c}</span>`).join('')}
+      ${Object.entries(PERMS).map(([r,p])=>`<span>${r}</span>${p.map((x,i)=>`<input type="checkbox" data-act="perm" data-r="${r}" data-i="${i}" ${x?'checked':''} aria-label="${r}: ${cols[i]}">`).join('')}`).join('')}</div></div>
+      <button class="btn" data-act="save" style="margin-top:16px">Guardar cambios</button></div>
+      <div class="card" style="margin-top:14px"><h3>Modo Avanzado</h3><p class="who">Esta sesión usa un token de 15 minutos. Al vencer, hay que iniciar sesión otra vez con la PWD.</p></div>`}
+};
+const state={};
+function render(){
+  const r=role;
+  $('#v-dash').innerHTML=`<div class="bar" style="--rc:var(--r-${r.id})">
+    <div class="bar-l"><span class="ico">${icon(r.id)}</span><div><h2>${r.name}</h2><p class="who">${r.person} · ${r.cargo}</p></div></div>
+    <div class="bar-r">${r.id==='soporte'?'<span class="chip" title="Tiempo restante del token">Token <b id="tok">15:00</b></span>':''}<span class="chip">${r.user}</span><button class="btn ghost sm" data-act="out">Cerrar sesión</button></div></div>${VIEWS[r.id]()}`;
+}
+$('#v-dash').addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]');if(!b)return;
+  const a=b.dataset.act,hhmm=()=>new Date().toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+  if(a==='out')return logout();
+  if(a==='fil'){state.fil=b.dataset.v;render()}
+  if(a==='area'){state.area=b.dataset.v;render()}
+  if(a==='afil'){state.afil=b.dataset.v;render()}
+  if(a==='pick'){state.sa=b.dataset.id;state.se=($('#sc-emp')||{}).value;render()}
+  if(a==='del'){const x=ASSETS.find(i=>i.id===b.dataset.id);state.sa=x.id;state.se=($('#sc-emp')||{}).value;render();$('#sc-emp').focus();toast('Escribe el chip del empleado y registra la lectura.')}
+  if(a==='ret'){doScan(b.dataset.id,'')}
+  if(a==='save')toast('Permisos guardados (demo)');
+});
+function doScan(code,emp){
+  const hhmm=new Date().toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+  code=code.trim().toUpperCase();emp=emp.trim().toUpperCase();
+  const x=ASSETS.find(i=>i.id===code);
+  state.sa='';state.se=emp||'USR-024';
+  if(!code)state.res={ok:false,title:'Falta el chip del activo',msg:'Escribe o acerca el chip del activo para continuar.'};
+  else if(!x)state.res={ok:false,title:`${code} no existe`,msg:'Ese chip no está registrado en el inventario. Revisa el código o registra el activo.'};
+  else if(x.who){const w=x.who;MOVES.unshift({k:'Devolución',a:x.id,e:w,h:hhmm});x.who=null;x.since=null;x.late=false;state.res={ok:true,title:`${x.id} devuelto`,msg:`${x.d} vuelve a estar disponible. Lo devolvió ${w} a las ${hhmm}.`}}
+  else if(!emp)state.res={ok:false,title:'Falta el chip del empleado',msg:`${x.id} está disponible. Para entregarlo, escribe el código del empleado.`};
+  else if(!STAFF.some(s=>s.id===emp))state.res={ok:false,title:`${emp} no existe`,msg:'No hay un empleado con ese código. No se entregó el activo.'};
+  else{x.who=emp;x.since='hoy '+hhmm;MOVES.unshift({k:'Entrega',a:x.id,e:emp,h:hhmm});state.res={ok:true,title:`${x.id} entregado`,msg:`${x.d} queda a nombre de ${emp} a las ${hhmm}.`}}
+  render();
+}
+$('#v-dash').addEventListener('submit',e=>{if(e.target.id==='scan-form'){e.preventDefault();doScan($('#sc-asset').value,$('#sc-emp').value)}});
+$('#v-dash').addEventListener('input',e=>{if(e.target.id==='q'){state.q=e.target.value;const pos=e.target.selectionStart;render();const q=$('#q');q.focus();q.setSelectionRange(pos,pos)}});
+$('#v-dash').addEventListener('change',e=>{const c=e.target.closest('[data-act=perm]');if(c)PERMS[c.dataset.r][c.dataset.i]=c.checked?1:0});
+</script>
+</body>
+</html>
